@@ -1,0 +1,11 @@
+.button {
+	width: 60px;
+	height: 60px;
+	float: left;
+	background: url(../images/radio_up.png) no-repeat;
+	cursor: pointer;
+}
+
+div.button input {
+           opacity: 0.0;
+}

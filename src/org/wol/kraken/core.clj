@@ -7,7 +7,9 @@
             [org.wol.kraken.sequencer    :as sequencer]
             [org.wol.kraken.audio        :as audio]
             [org.wol.kraken.logging      :as log]
-            [wol-utils.core               :as wol-utils])
+            [wol-utils.core               :as wol-utils]
+            [ring.middleware.file-info    :as ring-file-info]
+            [ring.middleware.file    :as ring-file])
   (:use [lamina.core]
         [net.cgrand.moustache]))
 
@@ -136,24 +138,19 @@
    :body  (str-utils/str-join "\n"
                               (ds/read-lines (.getFile (wol-utils/obtain-resource-url *ns* "html/index.html")))) })
 
-(defn serve-js [request]
-  {:status 200
-   :headers {"content-type" "application/x-javascript"}
-   :body (str-utils/str-join "\n"
-                             (ds/read-lines (.getFile (wol-utils/obtain-resource-url *ns* "javascripts/kraken.js"))))})
-
 (def handlers
      (app
-      ["javascripts"] { :get serve-js }
-      ["sync"]        { :get serve-page }
-      ["async"]       { :get (ahttp/wrap-aleph-handler async-handler) }))
+      (ring-file-info/wrap-file-info)
+      (ring-file/wrap-file "public")
+      [""]        { :get serve-page }
+      ["async"]    { :get (ahttp/wrap-aleph-handler async-handler) }))
 
 (defn start-server []
   (log/load-log4j-file "log4j.properties")
   (reset! *server*
           (ahttp/start-http-server
            (ahttp/wrap-ring-handler handlers)
-           {:port 8080 :websocket true})))
+           {:port 8080 :websocket true :join true})))
 
 (defn close-web-sockets []
   (doseq [ws @*web-socket-list*]
