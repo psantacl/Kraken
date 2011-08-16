@@ -31,6 +31,11 @@ var Cyclops = (function () {
                          var checkBox =  $('input[type="checkbox"][value=' + targetValue + "]'");
                          checkBox.first().attr('checked', checked);
                          checkBox.parent().css('background','url(../images/radio_down.png) no-repeat');
+                     } else {
+                         var targetValue = step + "," + instrument;
+                         var checkBox =  $('input[type="checkbox"][value=' + targetValue + "]'");
+                         checkBox.first().attr('checked', checked);
+                         checkBox.parent().css('background','url(../images/radio_up.png) no-repeat');
                      }
                   };
 
