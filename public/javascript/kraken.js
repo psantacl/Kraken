@@ -26,15 +26,12 @@ var Cyclops = (function () {
                      var checked = payload.checked;
 
                      console.log( "Received patternChange: step(" + step  + ") instrument(" + instrument + ") checked(" + checked + ")");
+                     var targetValue = step + "," + instrument;
+                     var checkBox =  $('input[type="checkbox"][value=' + targetValue + "]'");
+                     checkBox.first().attr('checked', checked);
                      if (checked) {
-                         var targetValue = step + "," + instrument;
-                         var checkBox =  $('input[type="checkbox"][value=' + targetValue + "]'");
-                         checkBox.first().attr('checked', checked);
                          checkBox.parent().css('background','url(../images/radio_down.png) no-repeat');
                      } else {
-                         var targetValue = step + "," + instrument;
-                         var checkBox =  $('input[type="checkbox"][value=' + targetValue + "]'");
-                         checkBox.first().attr('checked', checked);
                          checkBox.parent().css('background','url(../images/radio_up.png) no-repeat');
                      }
                   };
