@@ -1,19 +1,33 @@
 var Cyclops = (function () {
                   var self = {};
 
+
                   self.spp = function(payload) {
+                      if ( ! self.cols ) {
+                        self.cols = [];
+                        for (var i = 0; i < 16; i++) {
+                          self.cols.push($('.column-'+ i));
+                          self.cols[i].css('opacity', 0.7);
+                        }
+                      }
+
                       var step = parseInt(payload);
                       console.log("Received spp(" + step + ")");
-                      if (step == 0) {
-                          for (var i = 0;i < 16;i++) {
-                              $('#' + String(i) + '-step-indicator').hide();
-                          }
-                          $('#0-step-indicator').show();
-                      } else {
-                          for (var i = 0;i < step + 1;i++) {
-                              $('#' + String(i) + '-step-indicator').show();
-                          }
-                     }
+
+                      var before = (step + 16 - 1) % 16;
+                      //var after  = (step + 1) % 16;
+                      self.cols[before].css('opacity', 0.7);
+                      self.cols[step].css('opacity', 1.0);
+
+                      //for (var i = 0; i < 16; i++) {
+                      //    if (i === step) {
+                      //        self.cols[i].css('opacity',1);
+                      //        // $('.column-'+ step).css('opacity', 1);
+                      //    } else {
+                      //        self.cols[i].css('opacity',0.7);
+                      //        // $('.column-'+ step).css('opacity', 0.5);
+                      //    }
+                      //}
                   };
 
                   self.play = function(payload) {
