@@ -24,8 +24,7 @@
       (if (nth step-instructions i)
         (do
           (log/info (format "playing sound %d for step %d" i step))
-          (audio/play-sound (get instrument-dispatch i) ))))))
-
+          (audio/play-sound-from-atom (get instrument-dispatch i)))))))
 
 ;;(.setTempoInBPM sequencer/*sequencer* bpm)
 (defn tempo-change [new-tempo]
@@ -107,13 +106,12 @@
                                            "checked"    checked}}
                                 ))))))
 
-
 (defn async-handler [ch request]
   #^{ :doc "Handler triggered when a web socket connection is established from the client"}
   (swap! *web-socket-list* conj ch)
   (receive-all ch (wsocket-receive ch))
 
-  (if-not (some #(deref (get-in % [:instrument :clip])) audio/*default-instruments*)
+  (if-not (some #(deref (:instrument %1)) audio/*default-instruments*)
     (audio/load-default-sounds)
     (do
       (log/info "Reconnecting to active session.  NOT reloading sounds.")

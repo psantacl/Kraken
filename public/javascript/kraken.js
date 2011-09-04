@@ -135,6 +135,7 @@ var Cyclops = (function () {
 })();
 
 
+var sync;
 $(document).ready( function() {
                        try {
                            Cyclops.socket.onopen = function() {
@@ -161,6 +162,25 @@ $(document).ready( function() {
                        Cyclops.transportButtons();
                        Cyclops.bindTempoSliders();
                        Cyclops.bindVolumeSliders();
-                   } );
+                      
+                       var iterations = 0;     
+
+                       $('a#try-me').click( function(e) {
+                            sync = Sink( function (buffer, channelCount ) {
+                                console.log('buffer size: ' + buffer.length );
+                                for (var i = 0; i < buffer.length; i++) {
+                                    buffer[i] = Math.sin( 1000 *  ( (Math.PI * 2)/ buffer.length) * i ) 
+                                }
+                                iterations += 1;
+                                console.log(iterations);
+                                if (iterations > 10 ) {
+                                  return false;
+                                } else {
+                                  return true;
+                                }
+                            }, 1, 4096, 44100);
+                       });
+
+                   } );//ready
 
 
