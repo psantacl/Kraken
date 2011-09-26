@@ -11,21 +11,22 @@
             [ring.middleware.file-info    :as ring-file-info]
             [ring.middleware.file    :as ring-file])
   (:use [lamina.core]
-        [net.cgrand.moustache]))
+        [net.cgrand.moustache])
+  (:import
+   [org.apache.commons.codec.binary Base64]
+   [java.nio.charset  Charset]))
+
 
 (def *server* (atom nil))
 (def *web-socket-list* (atom []))
 
 (defn play-sounds-for-step [step]
-  (let [step-instructions (get @sequencer/*pattern* step)
-        instrument-dispatch {0 audio/*Drum1* 1 audio/*Drum2*
-                             2 audio/*Drum3* 3 audio/*Drum4*}]
+  (let [step-instructions (get @sequencer/*pattern* step)]
     (dotimes [i 4]
       (if (nth step-instructions i)
         (do
           (log/info (format "playing sound %d for step %d" i step))
-          (audio/play-sound (get instrument-dispatch i) ))))))
-
+          (audio/play-sound (nth @audio/*drums* i) ))))))
 
 ;;(.setTempoInBPM sequencer/*sequencer* bpm)
 (defn tempo-change [new-tempo]
@@ -40,6 +41,7 @@
 
 (defn wsocket-receive [ch]
   (fn [msg]
+    (log/info (format  "Received %s from websocket" msg))
     (if-not msg
       (do
         (log/info "Received nil from WebSocket")
@@ -81,20 +83,9 @@
           :else
           (send-to-other-clients ch msg))))))
 
-
-
-
-(comment
-  (.getValue (audio/get-volume-control audio/*Drum1*))
-  (.getMinimum (audio/get-volume-control audio/*Drum1*))
-  (.getMaximum (audio/get-volume-control audio/*Drum1*))
-
-  (.intValue (* 100  (/ 5 99)))
-
-  )
-
 (defn transmit-pattern-to-client [ch]
   #^{ :doc "Transmit the current sequence to the client so that it can update the step display" }
+  (log/info "transmitting pattern to client")
   (doseq [step         (keys @sequencer/*pattern*)]
     (let [step-events  (map #(list %1 %2)
                             (get @sequencer/*pattern* step)
@@ -107,18 +98,39 @@
                                            "checked"    checked}}
                                 ))))))
 
+(defn transmit-drums-to-client [ch]
+  #^{ :doc "Trasnmit the audio data to the client so they can play it"}
+  (log/info "Transmitting audio data to client")
+  (enqueue ch
+           (json/json-str {:command "audioData"
+                           :payload {"number"       0
+                                     "data"    (audio/mine-audio-data (nth @audio/*drums* 0))}})))
 
+
+(comment
+
+  (enqueue (first @*web-socket-list*)
+   (json/json-str {:command "spp"
+                   :payload 1 }))
+
+  )
 (defn async-handler [ch request]
   #^{ :doc "Handler triggered when a web socket connection is established from the client"}
+  (log/info "WebSocket connection. Adding new client to web-socket-list")
   (swap! *web-socket-list* conj ch)
   (receive-all ch (wsocket-receive ch))
 
-  (if-not (some #(deref (get-in % [:instrument :clip])) audio/*default-instruments*)
+  (if-not (some :clip  @audio/*drums*)
     (audio/load-default-sounds)
-    (do
-      (log/info "Reconnecting to active session.  NOT reloading sounds.")
-      (audio/transmit-volumes-to-client ch)))
+    (log/info "Reconnecting to active session.  NOT reloading sounds."))
 
+  ;;transmit audio data
+  #_(transmit-drums-to-client ch)
+
+  ;;transmit audio volumes
+  (audio/transmit-volumes-to-client ch)
+
+  ;;set up sequencer callback
   (let [spp-callback (fn [step]
                        (play-sounds-for-step (Integer. step))
                        (doseq [ws @*web-socket-list*]
@@ -132,7 +144,9 @@
         (log/info "No open sequencer found. Creating new one.")
         (sequencer/init-sequencer spp-callback)
         (reset! sequencer/*midi-receive-spp-fn* spp-callback))
+
       (transmit-pattern-to-client ch))))
+
 
 (defn serve-page [request]
   {:status 200
@@ -144,7 +158,7 @@
      (app
       (ring-file-info/wrap-file-info)
       (ring-file/wrap-file "public")
-      [""]        { :get serve-page }
+      [""]         { :get serve-page }
       ["async"]    { :get (ahttp/wrap-aleph-handler async-handler) }))
 
 (defn start-server []
@@ -177,7 +191,6 @@
   (shutdown-server)
   (restart-server)
 
-
   (defn detect [predicate some-seq]
     (let [hits (filter predicate some-seq)]
       (if (empty? hits)
@@ -190,6 +203,40 @@
        (if (empty? hits#)
          nil
          (first hits#))))
+
+
+  (defn secure-websocket-response-8 [request]
+  (let [headers (:headers request)
+        magic-string    "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+        response-string (.concat (get headers (.toLowerCase "sec-websocket-key"))
+                                 magic-string)
+        sha-1             (.digest (MessageDigest/getInstance "SHA-1")
+                                 (.getBytes response-string "UTF-8")) ]
+    {:status 101
+     :headers {"Sec-WebSocket-Accept"   (String. (Base64/encodeBase64 sha-1))
+               }}))
+
+
+  (defn websocket-response [^HttpRequest request netty-channel options]
+  (.setHeader request "content-type" "application/octet-stream")
+  (let [request (transform-netty-request request netty-channel options)
+	headers (:headers request)
+	response (cond (and (headers "sec-websocket-key1") (headers "sec-websocket-key2"))
+                       (secure-websocket-response request)
+
+                       (= (get headers "sec-websocket-version" ) "8")
+                       (secure-websocket-response-8 request)
+
+                       :else
+                       (standard-websocket-response request))]
+    (def *response* response)
+    (def *transformed-respone*  (transform-aleph-response
+                                 (update-in response [:headers]
+                                            #(assoc %
+                                               "Upgrade" "WebSocket"
+                                               "Connection" "Upgrade"))
+                                 options))
+    *transformed-respone*))
 
 
   )

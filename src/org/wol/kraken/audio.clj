@@ -6,114 +6,126 @@
    [org.wol.kraken.logging :as log])
   (:use [lamina.core])
   (:import [javax.sound.sampled DataLine AudioSystem Clip DataLine$Info
-            FloatControl$Type BooleanControl$Type]
-           [org.apache.log4j Logger]))
+            FloatControl$Type BooleanControl$Type AudioFormat]
+           [org.apache.log4j Logger]
+           [java.io ByteArrayOutputStream]))
 
+(defn- audio-data->byte-array [ais]
+  (let [frame-size (.. ais getFormat getFrameSize)
+        baos        (ByteArrayOutputStream.) ]
+
+    (loop [baos baos]
+      (let [ba         (byte-array (* 1024 frame-size))
+            bytes-read (.read ais ba)]
+        (println bytes-read " bytes read")
+        (if (= -1 bytes-read)
+          (.toByteArray baos)
+          (do
+            (.write baos ba 0 bytes-read)
+            (recur baos)))))))
+
+(def *rosetta-audio-format* (AudioFormat. 44100.00 16 1 true false ))
 
 (defprotocol JVMAudioClip
   "shit for java audio management"
   (get-volume-control [this])
   (get-mute-control [this])
-  (load-sound-from-url [this audio-uril])
   (clear-sound [this])
   (play-sound [this])
-  (load-sound-from-resource [this resource]))
+  (mine-audio-data [this]))
 
-(defrecord Drum [clip audio-input-stream]
+
+(defrecord Drum [clip audio-url]
   JVMAudioClip
   (get-volume-control [this]
                       (first (filter (fn [c] (= FloatControl$Type/MASTER_GAIN (.getType c)))
-                                     (.getControls (deref (:clip this))))))
+                                     (.getControls (:clip this)))))
   (get-mute-control [this]
                     (first (filter (fn [c] (= BooleanControl$Type/MUTE (.getType c)))
-                                   (.getControls (deref (:clip this))))))
-  (load-sound-from-url [this audio-url]
-                       (let [ain (AudioSystem/getAudioInputStream audio-url)]
-                         (try
-                          (let [line-info (DataLine$Info. Clip (.getFormat ain))
-                                clip (AudioSystem/getLine line-info)]
-                            (reset! (:clip this) clip)
-                            (reset! (:audio-input-stream this) ain)
-                            (.open (deref (:clip this)) (deref (:audio-input-stream this))))
-
-                          (finally
-                           (.close ain)))))
+                                   (.getControls (:clip this)))))
   (play-sound [this]
-              (.stop (deref (:clip this)))
-              (.setMicrosecondPosition (deref (:clip this)) 0)
-              (.start (deref (:clip this))))
+              (.stop (:clip this))
+              (.setMicrosecondPosition (:clip this) 0)
+              (.start (:clip this)))
+  (mine-audio-data [this]
+                   (let [ais          (AudioSystem/getAudioInputStream (:audio-url this))
+                         audio-format (.getFormat ais)
+                         ais (if-not (.matches audio-format *rosetta-audio-format*)
+                               (do
+                                 (log/info (format "Converting audio clip to rosetta format %s" *rosetta-audio-format*) )
+                                 (AudioSystem/getAudioInputStream *rosetta-audio-format* ais))
+                               (do
+                                 (log/info (format "Converting audio clip has good format %s" audio-format))
+                                 ais))]
+                     (audio-data->byte-array ais))))
 
-  (clear-sound [this]
-               (reset! (:clip this))))
 
-
-(def *Drum1* (Drum. (atom nil) (atom nil)))
-(def *Drum2* (Drum. (atom nil) (atom nil)))
-(def *Drum3* (Drum. (atom nil) (atom nil)))
-(def *Drum4* (Drum. (atom nil) (atom nil)))
+(comment
+  (clear-sounds)
+  (load-default-sounds)
+  (mine-audio-data (nth @*drums* 0))
+  (.matches *rosetta-audio-format* (.getFormat (AudioSystem/getAudioInputStream (:audio-url (nth @*drums* 2)))))
+  )
 
 
 (def *max-volume* 13.9794)
 (def *min-volume* -40)
 
 
+(def *drums* (ref []))
+
+(def *default-instruments*
+     [ "sounds/tonebell01.aif"  "sounds/clickthump1.wav"  "sounds/blue.wav"  "sounds/click2.wav"])
+
+
 (defn clear-sounds []
   (log/info "Clearing sounds")
-  (doseq [{instr :instrument file :file} *default-instruments* ]
-    (clear-sound instr)))
+  (dosync
+   (ref-set *drums* [])))
+
+
+(defn load-sound [audio-url]
+  (let [clip   (with-open [ais (AudioSystem/getAudioInputStream audio-url) ]
+                 (let [line-info (DataLine$Info. Clip (.getFormat ais))
+                       clip       (AudioSystem/getLine line-info)]
+                   (.open clip ais)
+                   clip))
+        nascent-drum (Drum. clip audio-url )]
+    (.setValue (get-volume-control nascent-drum) *max-volume*)
+    (dosync
+     (alter *drums* conj nascent-drum))))
 
 (defn load-default-sounds []
-  (doseq [{instr :instrument file :file} *default-instruments* ]
-    (let [audio-url (wol-utils/obtain-resource-url
-                     *ns*
-                     file)]
-      (load-sound-from-url instr audio-url)
-      (.setValue (get-volume-control instr) *max-volume*))))
+  (doseq [audio-file *default-instruments*]
+    (let [audio-url  (wol-utils/obtain-resource-url *ns* audio-file)]
+      (load-sound audio-url))))
 
 
-(defn load-sound-from-resource [instrument resource]
-  (let [audio-url (wol-utils/obtain-resource-url
-                   *ns*
-                   resource)]
-    (load-sound-from-url instrument audio-url)))
-
+;; (defn load-sound-from-resource [instrument resource]
+;; (let [audio-url (wol-utils/obtain-resource-url
+;;                  *ns*
+;;                  resource)]
+;;   (load-sound-from-url instrument audio-url)))
 
 
 (comment
-  (.setValue (get-mute-control *Drum3*) false)
-;;;-80...13.9
-  (.setValue  (get-volume-control *Drum1*) 8.0)
-  (.setValue  (get-volume-control *Drum2*)   13.9794)
-  (.setValue  (get-volume-control *Drum3*) -5.0)
-  (.setValue  (get-volume-control *Drum4*) 7.0)
+  ;;;lambda
+  (.getControls (:clip (first @*drums*)))
+  (.getLineInfo (:clip (first @*drums*)))
+  (.getMicrosecondLength (:clip (first @*drums*)))
+  (.setMicrosecondPosition (:clip (first @*drums*)) 50000)
 
-  (.getValue  (get-volume-control *Drum1*))
-  (.getValue  (get-volume-control *Drum2*))
-  (.getValue  (get-volume-control *Drum3*))
-  (.getValue  (get-volume-control *Drum4*))
+  (play-sound (first @*drums*))
+  (.getMinimum (get-volume-control (first @*drums*)))
+  (.getMaximum (get-volume-control (first @*drums*)))
 
-  (load-sound-from-resource *Drum1* "sounds/blue.wav")
-  (load-sound-from-resource *Drum2* "sounds/click2.wav")
-  (load-sound-from-resource *Drum1* "sounds/tonebell01.aif")
-  (load-sound-from-resource *Drum2* "sounds/clickthump1.wav")
-  (load-sound-from-resource *Drum1* "sounds/dit.wav")
-  (load-sound-from-resource *Drum2* "sounds/donk.wav")
-  (load-sound-from-resource *Drum3* "sounds/vermonasnare1.wav")
-  (load-sound-from-resource *Drum3* "sounds/red.wav")
-  (load-sound-from-resource *Drum3* "sounds/sickofnoisesnaresyet.aif")
-
-
-  (AudioSystem/getAudioInputStream
-   (-> (.getClass *ns*)
-       (.getClassLoader)
-       (.getResourceAsStream "blue.wav")))
-
+  (.setValue (get-volume-control (first @*drums*)) 0.0)
+    (.setValue (get-volume-control (first @*drums*)) 13)
   )
 
-
 (defn volume-change [{instr-num :instrument new-volume :value}]
-  (let [instr (:instrument (nth *default-instruments* instr-num))
-        vol-control (get-volume-control instr)
+  (let [drum        (nth @*drums* instr-num)
+        vol-control (get-volume-control drum)
         new-value   (+ (* (/ new-volume 100)
                           (- *max-volume* *min-volume*))
                        *min-volume*)]
@@ -123,9 +135,9 @@
 (defn transmit-volumes-to-client [ch]
   #^{ :doc "Transmit the current volume settings to the client so that it can update the volume sliders" }
   (log/info "Resyncing volume controls.")
-  (doseq [[i {instr :instrument}] (map (fn [instr i] [instr i])
-                                       (range (count *default-instruments* ))
-                                       *default-instruments*)]
+  (doseq [[i instr] (map (fn [instr i] [instr i])
+                                       (range (count @*drums* ))
+                                       @*drums*)]
     (let [vol-control (get-volume-control instr)
           vol         (.getValue vol-control)]
       (log/info (format "Sending volume %d"
@@ -142,29 +154,30 @@
                  })))))
 
 
-
 (comment
-  (play-sound *Drum1*)
-  (play-sound *Drum2*)
-  (play-sound *Drum3*)
-  (play-sound *Drum4*)
+  (count @*drums*)
+  (load-default-sounds)
+  (play-sound (nth @*drums* 1))
 
-  (/  (.getMicrosecondLength @*Drum1*) 1000.0)
 
-  (.start @*Drum1*)
-  (.stop @*Drum1*)
-  (.isActive @*Drum1*)
-  (.isRunning @*Drum1*)
-  (.setMicrosecondPosition @*Drum1* 0)
-  (.getMicrosecondPosition  @*Drum1*)
-  (.getMicrosecondLength @*Drum1*)
-  (.getBufferSize @*Drum1*)
-  (.getLineInfo @*Drum1*)
-  (.getControls @*Drum1*)
-  (.getBufferSize @*Drum1*)
+  (get-volume-control (nth @*drums* 1))
 
-  (.getLevel @*Drum1*)
-  (.getLongFramePosition @*Drum1*)
+
+
+  (/  (.getMicrosecondLength (deref (:clip *Drum1*))) 1000.0)
+
+  (.isActive (deref (:clip *Drum1*)))
+  (.isRunning (deref (:clip  *Drum1*)))
+  (.setMicrosecondPosition (deref (:clip *Drum1*)) 0)
+  (.getMicrosecondPosition  (deref (:clip *Drum1*)))
+  (.getMicrosecondLength (deref (:clip *Drum1*)))
+  (.getBufferSize (deref (:clip *Drum1*)))
+  (.getLineInfo (deref (:clip *Drum1*)))
+  (.getControls (deref (:clip *Drum1*)))
+  (.getBufferSize (deref (:clip *Drum1*)))
+
+  (.getLevel (deref (:clip *Drum1*)))
+  (.getLongFramePosition (deref (:clip *Drum1*)))
 
 
   )
