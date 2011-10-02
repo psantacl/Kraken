@@ -1,15 +1,17 @@
 (ns org.wol.kraken.core
+  (:gen-class)
   (:require [aleph.http                   :as  ahttp]
             [clojure.contrib.classpath    :as cp]
             [clojure.contrib.duck-streams :as ds]
             [clojure.contrib.str-utils    :as str-utils]
             [clojure.contrib.json         :as json]
-            [org.wol.kraken.sequencer    :as sequencer]
-            [org.wol.kraken.audio        :as audio]
-            [org.wol.kraken.logging      :as log]
+            [org.wol.kraken.sequencer     :as sequencer]
+            [org.wol.kraken.audio         :as audio]
+            [org.wol.kraken.logging       :as log]
             [wol-utils.core               :as wol-utils]
             [ring.middleware.file-info    :as ring-file-info]
-            [ring.middleware.file    :as ring-file])
+            [ring.middleware.file         :as ring-file]
+            [ring.util.response          :as ring-util])
   (:use [lamina.core]
         [net.cgrand.moustache])
   (:import
@@ -19,6 +21,14 @@
 
 (def *server* (atom nil))
 (def *web-socket-list* (atom []))
+
+
+(defn swank []
+  (do (require 'swank.swank)
+      (@(ns-resolve 'swank.swank 'start-repl)
+       (Integer. 4006)
+       :host "127.0.0.1"))
+  (log/info "Kraken Clients's Swank should be listening on 4006"))
 
 (defn play-sounds-for-step [step]
   (let [step-instructions (get @sequencer/*pattern* step)]
@@ -106,14 +116,6 @@
                            :payload {"number"       0
                                      "data"    (audio/mine-audio-data (nth @audio/*drums* 0))}})))
 
-
-(comment
-
-  (enqueue (first @*web-socket-list*)
-   (json/json-str {:command "spp"
-                   :payload 1 }))
-
-  )
 (defn async-handler [ch request]
   #^{ :doc "Handler triggered when a web socket connection is established from the client"}
   (log/info "WebSocket connection. Adding new client to web-socket-list")
@@ -148,25 +150,21 @@
       (transmit-pattern-to-client ch))))
 
 
-(defn serve-page [request]
-  {:status 200
-   :headers {"content-type" "text/html"}
-   :body  (str-utils/str-join "\n"
-                              (ds/read-lines (.getFile (wol-utils/obtain-resource-url *ns* "html/index.html")))) })
-
 (def handlers
      (app
       (ring-file-info/wrap-file-info)
       (ring-file/wrap-file "public")
-      [""]         { :get serve-page }
-      ["async"]    { :get (ahttp/wrap-aleph-handler async-handler) }))
+      ["async"]    { :get (ahttp/wrap-aleph-handler async-handler) }
+      [&]          { :get (fn [request] (ring-util/redirect "html/index.html")) }))
 
 (defn start-server []
-  (log/load-log4j-file "log4j.properties")
+  (wol-utils/load-log4j-file "log4j.properties")
+  (log/info "starting server")
   (reset! *server*
           (ahttp/start-http-server
            (ahttp/wrap-ring-handler handlers)
            {:port 8080 :websocket true :join true})))
+
 
 (defn close-web-sockets []
   (doseq [ws @*web-socket-list*]
@@ -183,6 +181,10 @@
 
 (defn restart-server []
   (shutdown-server)
+  (start-server))
+
+(defn -main []
+  (swank)
   (start-server))
 
 (comment
@@ -206,37 +208,37 @@
 
 
   (defn secure-websocket-response-8 [request]
-  (let [headers (:headers request)
-        magic-string    "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-        response-string (.concat (get headers (.toLowerCase "sec-websocket-key"))
-                                 magic-string)
-        sha-1             (.digest (MessageDigest/getInstance "SHA-1")
-                                 (.getBytes response-string "UTF-8")) ]
-    {:status 101
-     :headers {"Sec-WebSocket-Accept"   (String. (Base64/encodeBase64 sha-1))
-               }}))
+    (let [headers (:headers request)
+          magic-string    "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+          response-string (.concat (get headers (.toLowerCase "sec-websocket-key"))
+                                   magic-string)
+          sha-1             (.digest (MessageDigest/getInstance "SHA-1")
+                                     (.getBytes response-string "UTF-8")) ]
+      {:status 101
+       :headers {"Sec-WebSocket-Accept"   (String. (Base64/encodeBase64 sha-1))
+                 }}))
 
 
   (defn websocket-response [^HttpRequest request netty-channel options]
-  (.setHeader request "content-type" "application/octet-stream")
-  (let [request (transform-netty-request request netty-channel options)
-	headers (:headers request)
-	response (cond (and (headers "sec-websocket-key1") (headers "sec-websocket-key2"))
-                       (secure-websocket-response request)
+    (.setHeader request "content-type" "application/octet-stream")
+    (let [request (transform-netty-request request netty-channel options)
+          headers (:headers request)
+          response (cond (and (headers "sec-websocket-key1") (headers "sec-websocket-key2"))
+                         (secure-websocket-response request)
 
-                       (= (get headers "sec-websocket-version" ) "8")
-                       (secure-websocket-response-8 request)
+                         (= (get headers "sec-websocket-version" ) "8")
+                         (secure-websocket-response-8 request)
 
-                       :else
-                       (standard-websocket-response request))]
-    (def *response* response)
-    (def *transformed-respone*  (transform-aleph-response
-                                 (update-in response [:headers]
-                                            #(assoc %
-                                               "Upgrade" "WebSocket"
-                                               "Connection" "Upgrade"))
-                                 options))
-    *transformed-respone*))
+                         :else
+                         (standard-websocket-response request))]
+      (def *response* response)
+      (def *transformed-respone*  (transform-aleph-response
+                                   (update-in response [:headers]
+                                              #(assoc %
+                                                 "Upgrade" "WebSocket"
+                                                 "Connection" "Upgrade"))
+                                   options))
+      *transformed-respone*))
 
 
   )
