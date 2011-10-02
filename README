@@ -1,14 +1,14 @@
-# cyclops
+# Kraken
 
 FIXME: write description
 
 ## Usage
-
-FIXME: write
+From the project's root directory, do a 'bash bin/run-it.sh'
+Point your webbrowser @  localhost:8080
 
 ## Installation
-
-FIXME: write
+Install leiningen @ https://github.com/technomancy/leiningen
+lein install
 
 ## License
 
