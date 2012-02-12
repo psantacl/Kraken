@@ -12,10 +12,11 @@
    </head>
    <body>
 
-    <div>
+    <div style='float:left;'>
       <table>
-
         <tr>
+          <td> <select id='drum-list-0'/> </td>
+          <td style='padding-right:2em;'> <div id="volume-slider-0" style="width:100px;"> </div> </td>
           <td>
             <div class='button column-0'>
               <input type="checkbox" name="pattern" value="0,0"/>
@@ -57,7 +58,6 @@
               <input type="checkbox" name="pattern" value="7,0"/>
             </div>
           </td>
-
           <td>
             <div class='button column-8'>
               <input type="checkbox" name="pattern" value="8,0"/>
@@ -78,7 +78,6 @@
               <input type="checkbox" name="pattern" value="11,0"/>
             </div>
           </td>
-
           <td>
             <div class='button column-12'>
               <input type="checkbox" name="pattern" value="12,0"/>
@@ -99,10 +98,12 @@
               <input type="checkbox" name="pattern" value="15,0"/>
             </div>
           </td>
-          <td> <div id="volume-slider-0" style="width:100px"> </div> </td>
+          <td id='algorithm-control-0'> </div>
         </tr>
 
         <tr>
+          <td> <select id='drum-list-1'/> </td>
+          <td> <div id="volume-slider-1" style="width:100px"> </div> </td>
           <td>
             <div class='button column-0'>
               <input type="checkbox" name="pattern" value="0,1"/>
@@ -186,10 +187,12 @@
               <input type="checkbox" name="pattern" value="15,1"/>
             </div>
           </td>
-          <td> <div id="volume-slider-1" style="width:100px"> </div> </td>
+          <td id='algorithm-control-1'> </div>
         </tr>
 
         <tr>
+          <td> <select id='drum-list-2'/> </td>
+          <td> <div id="volume-slider-2" style="width:100px"> </div> </td>
           <td>
             <div class='button column-0'>
               <input type="checkbox" name="pattern" value="0,2"/>
@@ -274,10 +277,12 @@
               <input type="checkbox" name="pattern" value="15,2"/>
             </div>
           </td>
-          <td> <div id="volume-slider-2" style="width:100px"> </div> </td>
+          <td id='algorithm-control-2'> </div>
         </tr>
 
         <tr>
+          <td> <select id='drum-list-3'/> </td>
+          <td> <div id="volume-slider-3" style="width:100px"> </div> </td>
           <td>
             <div class='button column-0'>
               <input type="checkbox" name="pattern" value="0,3"/>
@@ -361,18 +366,24 @@
               <input type="checkbox" name="pattern" value="15,3"/>
             </div>
           </td>
-          <td> <div id="volume-slider-3" style="width:100px"> </div> </td>
+          <td id='algorithm-control-3'> </div>
         </tr>
 
       </table>
-      <div>
-        <a href="#" id='try-me' >try me </a>
-        <br/>
-        <button id="play">Play</button>
-        <button id="stop">Stop</button>
-        <div id="tempo-slider" style="width:400px;margin-top:2em"> </div>
+
+      <div id='transport-controls' style='padding-left:10em;'>
+        <button id="play" style='float:left;margin-top:2em;'>Play</button>
+        <button id="stop" style='float:left;margin-top:2em;'>Stop</button>
+        <div id="tempo-slider" style="width:400px;margin-top:2em;float:left;margin-left:6em;"> </div>
+        <select id="algorithm" style="margin-top:3em;margin-left:6em;">
+          <option value="vanilla" selected="true">Vanilla</option>
+          <option value="blue">Blue</option>
+        </select>
+
       </div>
 
     </div>
+
+
    </body>
 </html>

@@ -1,13 +1,13 @@
 (ns org.wol.kraken.audio
   (:require
-   [wol-utils.core :as wol-utils]
-   [clojure.contrib.classpath :as cp]
+   [wol-utils.core               :as wol-utils]
+   [clojure.contrib.classpath    :as cp]
    [clojure.contrib.json         :as json]
-   [org.wol.kraken.logging :as log])
-  (:use [lamina.core])
+   [clj-etl-utils.log            :as log])
+  (:use
+   [wol.websockets.server :only [*web-socket* ws-respond]])
   (:import [javax.sound.sampled DataLine AudioSystem Clip DataLine$Info
             FloatControl$Type BooleanControl$Type AudioFormat]
-           [org.apache.log4j Logger]
            [java.io ByteArrayOutputStream]))
 
 (defn- audio-data->byte-array [ais]
@@ -32,10 +32,10 @@
   (get-mute-control [this])
   (clear-sound [this])
   (play-sound [this])
+  (close-clip [this])
   (mine-audio-data [this]))
 
-
-(defrecord Drum [clip audio-url]
+(defrecord Drum [clip audio-file]
   JVMAudioClip
   (get-volume-control [this]
                       (first (filter (fn [c] (= FloatControl$Type/MASTER_GAIN (.getType c)))
@@ -47,15 +47,17 @@
               (.stop (:clip this))
               (.setMicrosecondPosition (:clip this) 0)
               (.start (:clip this)))
+  (close-clip [this]
+         (.close (:clip this)))
   (mine-audio-data [this]
-                   (let [ais          (AudioSystem/getAudioInputStream (:audio-url this))
+                   (let [ais          (AudioSystem/getAudioInputStream (:audio-file this))
                          audio-format (.getFormat ais)
                          ais (if-not (.matches audio-format *rosetta-audio-format*)
                                (do
-                                 (log/info (format "Converting audio clip to rosetta format %s" *rosetta-audio-format*) )
+                                 (log/infof "Converting audio clip to rosetta format %s" *rosetta-audio-format* )
                                  (AudioSystem/getAudioInputStream *rosetta-audio-format* ais))
                                (do
-                                 (log/info (format "Converting audio clip has good format %s" audio-format))
+                                 (log/infof "Converting audio clip has good format %s" audio-format)
                                  ais))]
                      (audio-data->byte-array ais))))
 
@@ -71,45 +73,67 @@
 (def *max-volume* 13.9794)
 (def *min-volume* -40)
 
-
 (def *drums* (ref []))
-
-(def *default-instruments*
-     [ "sounds/tonebell01.aif"  "sounds/clickthump1.wav"  "sounds/blue.wav"  "sounds/click2.wav"])
 
 
 (defn clear-sounds []
-  (log/info "Clearing sounds")
+  (log/infof "Clearing sounds")
   (dosync
    (ref-set *drums* [])))
 
-
-(defn load-sound [audio-url]
-  (let [clip   (with-open [ais (AudioSystem/getAudioInputStream audio-url) ]
+(defn load-sound [audio-file]
+  (let [clip   (with-open [ais (AudioSystem/getAudioInputStream audio-file) ]
                  (let [line-info (DataLine$Info. Clip (.getFormat ais))
                        clip       (AudioSystem/getLine line-info)]
                    (.open clip ais)
                    clip))
-        nascent-drum (Drum. clip audio-url )]
+        nascent-drum (Drum. clip audio-file )]
     (.setValue (get-volume-control nascent-drum) *max-volume*)
     (dosync
      (alter *drums* conj nascent-drum))))
 
-(defn load-default-sounds []
-  (doseq [audio-file *default-instruments*]
-    (let [audio-url  (wol-utils/obtain-resource-url *ns* audio-file)]
-      (load-sound audio-url))))
+(defn replace-sound [audio-file position]
+  (let [clip   (with-open [ais (AudioSystem/getAudioInputStream audio-file) ]
+                 (let [line-info (DataLine$Info. Clip (.getFormat ais))
+                       clip       (AudioSystem/getLine line-info)]
+                   (.open clip ais)
+                   clip))
+        nascent-drum (Drum. clip audio-file )]
+    (.setValue (get-volume-control nascent-drum) *max-volume*)
+    (let [old-drum (nth @*drums* position) ]
+     (dosync
+      (alter *drums*
+             (fn [drums]
+               (concat (take position drums)
+                       [nascent-drum]
+                       (drop (inc position) drums)))))
+     (close-clip old-drum))))
 
-
-;; (defn load-sound-from-resource [instrument resource]
-;; (let [audio-url (wol-utils/obtain-resource-url
-;;                  *ns*
-;;                  resource)]
-;;   (load-sound-from-url instrument audio-url)))
 
 
 (comment
-  ;;;lambda
+  (replace-sound (java.io.File. "drums/vermonasnare1.wav") 3)
+  (replace-sound (java.io.File. "drums/vermonasnare1.wav") 0)
+
+  (play-sound (last @*drums*))
+  (play-sound (first  @*drums*))
+
+
+  )
+
+(defn get-drum-list []
+  (let [drum-files (filter #(.isFile %) (file-seq (java.io.File. "./drums/")))]
+    drum-files))
+
+(defn load-default-sounds []
+  (doseq [drum (take 4 (get-drum-list))]
+    (load-sound drum)))
+
+
+
+
+(comment
+;;;lambda
   (.getControls (:clip (first @*drums*)))
   (.getLineInfo (:clip (first @*drums*)))
   (.getMicrosecondLength (:clip (first @*drums*)))
@@ -120,7 +144,7 @@
   (.getMaximum (get-volume-control (first @*drums*)))
 
   (.setValue (get-volume-control (first @*drums*)) 0.0)
-    (.setValue (get-volume-control (first @*drums*)) 13)
+  (.setValue (get-volume-control (first @*drums*)) 13)
   )
 
 (defn volume-change [{instr-num :instrument new-volume :value}]
@@ -129,22 +153,22 @@
         new-value   (+ (* (/ new-volume 100)
                           (- *max-volume* *min-volume*))
                        *min-volume*)]
-    (log/info (format "Setting volume for instrument %s to %f" instr-num new-value))
+    (log/infof "Setting volume for instrument %s to %f" instr-num new-value)
     (.setValue vol-control new-value )))
 
-(defn transmit-volumes-to-client [ch]
+(defn transmit-volumes-to-client []
   #^{ :doc "Transmit the current volume settings to the client so that it can update the volume sliders" }
-  (log/info "Resyncing volume controls.")
+  (log/infof "Resyncing volume controls.")
   (doseq [[i instr] (map (fn [instr i] [instr i])
-                                       (range (count @*drums* ))
-                                       @*drums*)]
+                         (range (count @*drums* ))
+                         @*drums*)]
     (let [vol-control (get-volume-control instr)
           vol         (.getValue vol-control)]
-      (log/info (format "Sending volume %d"
-                        (.intValue (* 100 (/ (- vol *min-volume*)
-                                             (- *max-volume* *min-volume*)
-                                             )))))
-      (enqueue ch
+      (log/infof "Sending volume %d"
+                 (.intValue (* 100 (/ (- vol *min-volume*)
+                                      (- *max-volume* *min-volume*)
+                                      ))))
+      (ws-respond
                (json/json-str
                 {:command "volume"
                  :payload {"instrument" i

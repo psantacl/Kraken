@@ -1,3 +1,7 @@
 pom.xml
+.lein-deps-sum
 lib
 classes
+checkouts
+kraken.log
+*.jar

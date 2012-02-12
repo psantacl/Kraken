@@ -1,5 +1,5 @@
 (ns org.wol.kraken.sequencer
-  (:require [org.wol.kraken.logging :as log])
+  (:require [clj-etl-utils.log   :as log])
   (:import [javax.sound.midi MidiSystem Sequence Receiver MidiEvent ShortMessage Sequencer
             Sequencer$SyncMode ControllerEventListener]))
 
@@ -21,9 +21,9 @@
   (comment (println "status byte:" (.getStatus message))))
 
 (def midi-receive-handler (proxy [Receiver] []
-                             (send [message timestamp]
-                                   (midi-receive message timestamp)
-                                   )))
+                            (send [message timestamp]
+                                  (midi-receive message timestamp)
+                                  )))
 
 (def *note-on* (doto (ShortMessage.) (.setMessage ShortMessage/NOTE_ON 0 60 93)))
 (def *note-off* (doto (ShortMessage.) (.setMessage ShortMessage/NOTE_OFF 0 60 93)))
@@ -76,18 +76,35 @@
   (clear-pattern)
   (loop-bar)
   (reset! *midi-receive-spp-fn* midi-receive-spp-fn)
+  (.setTempoInBPM @*sequencer* 120)
   (.open @*sequencer*))
 
 
 (defn step-selected [step instrument checked]
   (let [beat-pattern              (get @*pattern* step)]
-    (log/info (format "Setting step(%s), instrument(%s) to %s" step instrument checked))
+    (log/infof "Setting step(%s), instrument(%s) to %s" step instrument checked)
     (swap! *pattern* merge
            { step
             (vec (concat (take instrument beat-pattern)
                          [checked]
                          (drop (+ 1 instrument) beat-pattern)))
             })))
+
+(defn int->binary-list [dividend]
+  (loop [dividend dividend
+         pattern []]
+    (if (not (zero?  (int (/ dividend 2))))
+      (recur (int (/ dividend 2))
+             (cons   (= (rem dividend 2) 1) pattern ))
+      (conj pattern (= (rem dividend 2) 1)))))
+
+(defn lpad-binary-list [binary-list bits]
+  (loop [binary-list binary-list
+         lpad-count  (- bits (count binary-list))]
+    (if (> lpad-count 0)
+      (recur (cons false binary-list)
+             (dec lpad-count))
+      binary-list)))
 
 (comment
 

@@ -6,6 +6,18 @@ var Kraken = (function () {
                       self.drums.push( Drum(payload.data) );
                   };
 
+                  self.drumList = function(payload) {
+                      for (var i = 0; i < 4; i++) {
+                          $.each( payload.value, function(idx, drum) {
+                                      var nascentOption = $('<option>').attr('value', drum.name).html( drum.name );
+                                      if (drum.clip == i) {
+                                          nascentOption.attr('selected', true);
+                                      }
+                                      $('#drum-list-' + i).append( nascentOption );
+                                  });
+                      }
+                  };
+
                   self.setUpSin = function() {
                       try {
                           var iterations = 0;
@@ -86,7 +98,7 @@ var Kraken = (function () {
                       var instrument = payload.instrument;
                       var checked = payload.checked;
 
-                      console.log( "Received patternChange: step(" + step  + ") instrument(" + instrument + ") checked(" + checked + ")");
+                      //console.log( "Received patternChange: step(" + step  + ") instrument(" + instrument + ") checked(" + checked + ")");
                       var targetValue = step + "," + instrument;
                       var checkBox =  $('input[type="checkbox"][value=' + targetValue + "]'");
                       checkBox.first().attr('checked', checked);
@@ -107,7 +119,7 @@ var Kraken = (function () {
                       $('#volume-slider-' + payload.instrument).slider("value", payload.value);
                   };
 
-                  self.socket = new WebSocket("ws://localhost:8080/async");
+                  self.socket = new WebSocket("ws://localhost:8081/commands");
 
                   self.bindSteps = function() {
                       $('[name="pattern"]').each( function (index,box) {
@@ -163,6 +175,21 @@ var Kraken = (function () {
                                                  });
                   };
 
+                  self.bindDrumList = function () {
+                      console.log("Sending drum selection");
+                      var drumChangeCb = function (i) {
+                          return function( ) {
+                              var newDrum = $('#drum-list-' + i + ' option:selected').attr('value');
+                              var message = JSON.stringify( {'command' : 'drumChange', 'payload' : { 'instrument' : i, 'drum' : newDrum } } );
+                              Kraken.socket.send(message);
+                          }
+                      };
+
+                      for (var i=0; i < 4; i++) {
+                          $('#drum-list-' + i).change( drumChangeCb(i) );
+                      }
+                  };
+
                   self.transportButtons = function() {
                       $("button#play").button();
                       $("button#play").click( function() {
@@ -178,6 +205,44 @@ var Kraken = (function () {
 
                   };
 
+                  self.buildAndBindBlueSliders = function() {
+                      console.log('building blue sliders');
+                      var makeCallback = function(i) {
+                          return function(event,ui) {
+                              var message = JSON.stringify( { 'command' : 'blue', 'payload' : { 'instrument' : i, 'value' : ui.value } });
+                              Kraken.socket.send( message );
+                          };
+                      };
+
+                      for (var i = 0; i < 4; i++) {
+                          var newDiv = $('<div>').attr('id', 'blue-slider-' + i).css('width', '200px').css('margin-left', '2em');
+                          $('#algorithm-control-' + i).append( newDiv );
+                          $('#blue-slider-' + i).slider( { max : 65535, min : 0, step: 1, value: 0 });
+                          $('#blue-slider-' + i).bind( 'slide', makeCallback(i));
+                      }
+                  };
+
+                  self.bindAlgorithms = function() {
+                      $('#algorithm').change( function () {
+                                                  var algo = $('#algorithm option:selected').attr('value');
+                                                  console.log('algorithm changed: ' + algo);
+                                                  switch (algo)
+                                                  {
+                                                  case 'blue':
+                                                      self.buildAndBindBlueSliders();
+                                                      break;
+
+                                                  case 'vanilla':
+                                                      for (var i=0; i<4;i++) {
+                                                          $('#algorithm-control-' + i).html('');
+                                                      }
+                                                      break;
+                                                  }
+                                              } );
+
+                  };
+
+
                   return self;
               })();
 
@@ -191,7 +256,8 @@ $(document).ready( function() {
                            }
 
                            Kraken.socket.onmessage = function(msg) {
-                               console.log("data received: " + msg.data + " socket status: " + Kraken.socket.readyState);
+                               //console.log("data received: " + msg.data + " socket status: " + Kraken.socket.readyState);
+			       console.log( msg.data );
                                var parsedMsg = JSON.parse( msg.data );
 
                                for (var prop in Kraken) {
@@ -209,6 +275,8 @@ $(document).ready( function() {
                        Kraken.transportButtons();
                        Kraken.bindTempoSliders();
                        Kraken.bindVolumeSliders();
+                       Kraken.bindAlgorithms();
+                       Kraken.bindDrumList();
                        Kraken.setUpSin();
 
                    } );//ready
