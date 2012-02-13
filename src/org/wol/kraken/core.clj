@@ -47,11 +47,11 @@
                             (iterate inc 0) )]
       (doseq [[checked instrument] step-events]
         (ws-respond
-                 (json/json-str {:command "patternChange"
-                                 :payload {"step"       step
-                                           "instrument" instrument
-                                           "checked"    checked}}
-                                ))))))
+         (json/json-str {:command "patternChange"
+                         :payload {"step"       step
+                                   "instrument" instrument
+                                   "checked"    checked}}
+                        ))))))
 
 (defn transmit-tempo-to-client []
   #^{ :doc "Transmit the current tempo to the newly connected client" }
@@ -140,46 +140,43 @@
   #^{ :doc "Trasnmit the audio data to the client so they can play it"}
   (log/infof "Transmitting audio data to client")
   (ws-respond
-           (json/json-str {:command "audioData"
-                           :payload {"number"       0
-                                     "data"    (audio/mine-audio-data (nth @audio/*drums* 0))}})))
+   (json/json-str {:command "audioData"
+                   :payload {"number"       0
+                             "data"    (audio/mine-audio-data (nth @audio/*drums* 0))}})))
 
-(defn make-post-ws-handshake []
-  #^{ :doc "reaturn a handler that is triggered when a web socket connection is established from the client"}
-  (reify ChannelFutureListener
-    (operationComplete [this future]
-      (binding [*web-socket*  (.getChannel future)]
-        (log/infof "WebSocket connection. Adding new client to web-socket-list")
-        (if-not (some :clip  @audio/*drums*)
-          (audio/load-default-sounds)
-          (log/infof "Reconnecting to active session.  NOT reloading sounds."))
+(defn post-ws-handshake []
+  #^{ :doc "handler that is triggered when a web socket connection is established from the client"}
+  (log/infof "WebSocket connection. Adding new client to web-socket-list")
+  (if-not (some :clip  @audio/*drums*)
+    (audio/load-default-sounds)
+    (log/infof "Reconnecting to active session.  NOT reloading sounds."))
 
-        ;;trasnmit drum file list
-        (clients/transmit-drum-list)
+  ;;trasnmit drum file list
+  (clients/transmit-drum-list)
 
-        ;;transmit audio data
-        #_(transmit-drums-to-client)
+  ;;transmit audio data
+  #_(transmit-drums-to-client)
 
-        ;;transmit audio volumes
-        (audio/transmit-volumes-to-client)
+  ;;transmit audio volumes
+  (audio/transmit-volumes-to-client)
 
-        ;;set up sequencer callback
-        (let [spp-callback (fn [step]
-                             (play-sounds-for-step (Integer. step))
-                             (log/infof "sending out spp")
-                             (ws-broadcast-all    (json/json-str {:command "spp"
-                                                                  :payload step })))]
-          
-          (if (or (not @sequencer/*sequencer*)
-                  (not (.isOpen @sequencer/*sequencer*)))
-            (do
-              (log/infof "No open sequencer found. Creating new one.")
-              (sequencer/init-sequencer spp-callback)
-              (reset! sequencer/*midi-receive-spp-fn* spp-callback))
+  ;;set up sequencer callback
+  (let [spp-callback (fn [step]
+                       (play-sounds-for-step (Integer. step))
+                       (log/infof "sending out spp")
+                       (ws-broadcast-all    (json/json-str {:command "spp"
+                                                            :payload step })))]
+    
+    (if (or (not @sequencer/*sequencer*)
+            (not (.isOpen @sequencer/*sequencer*)))
+      (do
+        (log/infof "No open sequencer found. Creating new one.")
+        (sequencer/init-sequencer spp-callback)
+        (reset! sequencer/*midi-receive-spp-fn* spp-callback))
 
-            (do
-              (transmit-pattern-to-client)
-              (transmit-tempo-to-client))))))))
+      (do
+        (transmit-pattern-to-client)
+        (transmit-tempo-to-client)))))
 
 (defn start-server []
   (wol-utils/load-log4j-file "log4j.properties")
@@ -187,7 +184,7 @@
   (reset! *server*
           (server/start-netty-server
            {:message-received     wsocket-receive
-            :post-ws-handshake    (make-post-ws-handshake)
+            :post-ws-handshake    post-ws-handshake
             :port 8081})))
 
 (defn shutdown-server []
